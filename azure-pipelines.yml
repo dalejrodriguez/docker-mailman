@@ -2,11 +2,7 @@ variables:
   ANCHORE_SCAN_IMAGE: ${CI_REGISTRY_IMAGE}/build:${CI_COMMIT_REF_SLUG}-${CI_COMMIT_SHA}
 
 stages:
-  - build
-  - scan
-  - publish
 
-container_build:
   stage: build
   image: docker:stable
   services:
@@ -22,7 +18,7 @@ container_build:
     - docker push "$ANCHORE_SCAN_IMAGE"
     - docker rmi  "$ANCHORE_SCAN_IMAGE"
 
-container_scan:
+
   stage: scan
   image: anchore/engine-cli:latest
   artifacts:
@@ -66,7 +62,7 @@ container_scan:
     - image-npm.json
     - image-packages.json
  
-container_publish:
+
   stage: publish
   image: docker:stable
   services:
