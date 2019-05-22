@@ -1,0 +1,90 @@
+variables:
+  ANCHORE_SCAN_IMAGE: ${CI_REGISTRY_IMAGE}/build:${CI_COMMIT_REF_SLUG}-${CI_COMMIT_SHA}
+
+stages:
+  - build
+  - scan
+  - publish
+
+container_build:
+  stage: build
+  image: docker:stable
+  services:
+    - docker:stable-dind
+
+  variables:
+    DOCKER_DRIVER: overlay2
+
+  script:
+    - docker login -u gitlab-ci-token -p "$CI_JOB_TOKEN" "${CI_REGISTRY}"
+    - docker pull "${CI_REGISTRY_IMAGE}:${CI_COMMIT_REF_SLUG}" || true
+    - docker build --cache-from "${CI_REGISTRY_IMAGE}:${CI_COMMIT_REF_SLUG}" -t "$ANCHORE_SCAN_IMAGE" .
+    - docker push "$ANCHORE_SCAN_IMAGE"
+    - docker rmi  "$ANCHORE_SCAN_IMAGE"
+
+container_scan:
+  stage: scan
+  image: anchore/engine-cli:latest
+  artifacts:
+    when: always
+  
+  variables:
+    ANCHORE_CLI_URL: "https://secure.sysdig.com/api/scanning/v1/anchore"
+    ANCHORE_CLI_USER: "0389c33b-e3af-4377-8ac0-14e798345a5f"
+    ANCHORE_CLI_PASS: ""
+    ANCHORE_CLI_SSL_VERIFY: "n"
+    ANCHORE_FAIL_ON_POLICY: "false"
+    ANCHORE_TIMEOUT: 500
+    
+  script:
+    - echo "Adding image to Anchore engine at ${ANCHORE_CLI_URL}"
+    - anchore-cli image add ${ANCHORE_SCAN_IMAGE}
+    - echo "Waiting for analysis to complete"
+    - anchore-cli image wait ${ANCHORE_SCAN_IMAGE} --timeout ${ANCHORE_TIMEOUT}
+    - echo "Analysis complete"
+    - echo "Producing reports"
+    - anchore-cli --json image content ${ANCHORE_SCAN_IMAGE} os > image-packages.json
+    - anchore-cli --json image content ${ANCHORE_SCAN_IMAGE} npm > image-npm.json
+    - anchore-cli --json image content ${ANCHORE_SCAN_IMAGE} gem > image-gem.json
+    - anchore-cli --json image content ${ANCHORE_SCAN_IMAGE} python > image-python.json
+    - anchore-cli --json image content ${ANCHORE_SCAN_IMAGE} java > image-java.json
+    - anchore-cli --json image vuln ${ANCHORE_SCAN_IMAGE} os > image-vulnerabilities.json
+    - anchore-cli --json image get ${ANCHORE_SCAN_IMAGE} > image-details.json
+    - anchore-cli --json evaluate check ${ANCHORE_SCAN_IMAGE} --detail > image-policy.json || true
+    - if [ "${ANCHORE_FAIL_ON_POLICY}" == "true" ] ; then anchore-cli evaluate check ${ANCHORE_SCAN_IMAGE}  ; fi 
+    
+  artifacts:
+    name: "$CI_JOB_NAME"
+    when: always
+    paths:
+    - image-policy.json
+    - image-details.json
+    - image-vulnerabilities.json
+    - image-java.json
+    - image-python.json
+    - image-gem.json
+    - image-npm.json
+    - image-packages.json
+ 
+container_publish:
+  stage: publish
+  image: docker:stable
+  services:
+    - docker:stable-dind
+
+  variables:
+    DOCKER_DRIVER: overlay2
+    GIT_STRATEGY: none
+
+  script:
+    - docker login -u gitlab-ci-token -p "$CI_JOB_TOKEN" "${CI_REGISTRY}"
+    - docker pull "$ANCHORE_SCAN_IMAGE"
+    - docker tag "$ANCHORE_SCAN_IMAGE" "${CI_REGISTRY_IMAGE}:${CI_COMMIT_REF_SLUG}"
+    - docker push "${CI_REGISTRY_IMAGE}:${CI_COMMIT_REF_SLUG}"
+    
+    - |
+        if [ "$CI_COMMIT_REF_NAME" == "master" ]; then
+          docker tag "$ANCHORE_SCAN_IMAGE" "${CI_REGISTRY_IMAGE}:latest"
+          docker push "${CI_REGISTRY_IMAGE}:latest"
+          docker rmi  "$ANCHORE_SCAN_IMAGE"
+        fi
