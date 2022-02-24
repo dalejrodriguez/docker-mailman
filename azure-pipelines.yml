@@ -9,7 +9,7 @@ steps:
     TOKEN="0389c33b-e3af-4377-8ac0-14e798345a5f"
     URL="https://secure.sysdig.com/api/scanning/v1/anchore"
     IMAGE="docker-mailmain:latest"
-    ##################
+    ###################
     # Internal Vars
     ##################
     DIGEST=""
