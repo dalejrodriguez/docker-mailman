@@ -11,7 +11,7 @@ steps:
     IMAGE="docker-mailmain:latest"
     ###################
     # Internal Vars
-    ##################
+    ####################
     DIGEST=""
     RETRIES=96
  
